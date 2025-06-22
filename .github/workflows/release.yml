@@ -3,7 +3,7 @@ name: Build & Release Tarball (Single Directory)
 on:
   push:
     tags:
-      - "*-*" # Matches tags like tmux-v0.2.0, nvim-v0.3.1
+      - "*-*" # Matches tags like tmux-v0.2.0, nvim-v0.3.1, shell-v0.1.0
   workflow_dispatch:
 
 permissions:
@@ -17,17 +17,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2️⃣ Extract Directory Name and Version
+      # 2️⃣ Extract Directory Name and Version from Tag
       - name: Parse tag
         id: parse
         run: |
           tag="${GITHUB_REF_NAME}"
+
+          # Split tag (e.g., nvim-v0.3.1) by first '-'
           dir_name="${tag%%-*}"
+
+          # Everything after the first '-' is the version
           version="${tag#*-}"
+
           echo "dir_name=$dir_name" >> $GITHUB_OUTPUT
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      # 3️⃣ Create Tarball
+      # 3️⃣ Create Tarball for the Specific Directory
       - name: Create Tarball
         run: |
           dir_name="${{ steps.parse.outputs.dir_name }}"
@@ -35,9 +40,9 @@ jobs:
 
           if [ -d "$dir_name" ]; then
             tar czf "${dir_name}-${version}.tar.gz" "$dir_name"
+            echo "Tarball Created: ${dir_name}-${version}.tar.gz"
             mkdir artifacts
             mv "${dir_name}-${version}.tar.gz" artifacts/
-            echo "Tarball Created: ${dir_name}-${version}.tar.gz"
           else
             echo "Error: Directory $dir_name not found."
             exit 1
@@ -48,33 +53,3 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: artifacts/*.tar.gz
-
-      # 5️⃣ Update metadata.json
-      - name: Install jq
-        run: sudo apt-get install -y jq
-
-      - name: Update metadata.json
-        run: |
-          dir_name="${{ steps.parse.outputs.dir_name }}"
-          version="${{ steps.parse.outputs.version }}"
-
-          if [ ! -f metadata.json ]; then
-            echo "[]" > metadata.json
-          fi
-
-          cat metadata.json | jq \
-            --arg name "$dir_name" \
-            --arg version "${dir_name}-${version}" \
-            '(.[] | select(.name == $name) | .latest_version) |= $version
-              | if (.[] | select(.name == $name)) 
-                then . 
-                else . + [{"name": $name, "latest_version": $version }] 
-                end' \
-            > temp.json && mv temp.json metadata.json
-
-      # 6️⃣ Commit and Push
-      - name: Commit updated metadata.json
-        uses: EndBug/add-and-commit@v9
-        with:
-          add: "metadata.json"
-          message: "Update metadata.json for ${{ steps.parse.outputs.dir_name }}@${{ steps.parse.outputs.version }}"
